@@ -1,0 +1,14 @@
+# 全局配置文件
+# 用于配置应用程序的各项参数
+
+# 全局上下文注入配置（可选功能）
+global_context:
+  # 是否启用全局上下文注入
+  enable: true
+  
+  # 世界观设定文件路径（相对于项目根目录）
+  world_setting_path: "./data/world_setting.json"
+  
+  # 恋爱指南文件路径（相对于项目根目录）
+  romance_setting_path: "./data/romance_setting.json"
+
