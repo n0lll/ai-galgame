@@ -301,28 +301,49 @@ class DeepSeekExtractor:
 
 请以 JSON 格式输出，确保所有字段都存在。"""
 
-        try:
-            response_text = await self._call_api(system_prompt, user_prompt)
-            
-            # 尝试解析 JSON（可能需要清理响应文本）
-            json_text = self._extract_json_from_response(response_text)
-            data = json.loads(json_text)
-            
-            # 转换为 PartialWorldLore
-            partial_lore = PartialWorldLore(**data)
-            
-            print(f"[Extractor] 世界观块 {chunk_index} 提取完成: "
-                  f"{len(partial_lore.rules)} 规则, "
-                  f"{len(partial_lore.locations)} 地点, "
-                  f"{len(partial_lore.timeline_nodes)} 事件, "
-                  f"{len(partial_lore.factions)} 势力")
-            
-            return partial_lore
+        # 重试机制：最多重试 2 次
+        max_retries = 2
+        last_error = None
+        last_json_text = None
         
-        except Exception as e:
-            print(f"[错误] 世界观块 {chunk_index} 提取失败: {e}")
-            # 返回空对象，不中断流程
-            return PartialWorldLore()
+        for attempt in range(max_retries):
+            try:
+                response_text = await self._call_api(system_prompt, user_prompt)
+                
+                # 提取并尝试解析 JSON
+                json_text = self._extract_json_from_response(response_text)
+                last_json_text = json_text
+                
+                # 使用带重试的 JSON 解析
+                data = self._parse_json_with_retry(json_text, max_retries=2)
+                
+                if data is None:
+                    raise json.JSONDecodeError("JSON 解析失败", json_text, 0)
+                
+                # 转换为 PartialWorldLore
+                partial_lore = PartialWorldLore(**data)
+                
+                print(f"[Extractor] 世界观块 {chunk_index} 提取完成: "
+                      f"{len(partial_lore.rules)} 规则, "
+                      f"{len(partial_lore.locations)} 地点, "
+                      f"{len(partial_lore.timeline_nodes)} 事件, "
+                      f"{len(partial_lore.factions)} 势力")
+                
+                return partial_lore
+            
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    print(f"[警告] 世界观块 {chunk_index} 提取失败（尝试 {attempt + 1}/{max_retries}），正在重试...")
+                    await asyncio.sleep(1)  # 等待 1 秒后重试
+                else:
+                    # 最后一次尝试也失败，保存错误日志
+                    error_msg = f"[错误] 世界观块 {chunk_index} 提取失败: {e}"
+                    print(error_msg)
+                    self._save_error_log(chunk_index, "world", last_json_text, str(e))
+        
+        # 所有重试都失败，返回空对象
+        return PartialWorldLore()
     
     async def extract_romance_chunk(self, text: str, chunk_index: int) -> PartialRomanceData:
         """
@@ -383,26 +404,97 @@ class DeepSeekExtractor:
 
 请以 JSON 格式输出。"""
 
-        try:
-            response_text = await self._call_api(system_prompt, user_prompt)
-            
-            json_text = self._extract_json_from_response(response_text)
-            data = json.loads(json_text)
-            
-            # 转换为 PartialRomanceData
-            partial_data = PartialRomanceData(**data)
-            
-            print(f"[Extractor] 恋爱块 {chunk_index} 提取完成: "
-                  f"{len(partial_data.interaction_events)} 事件, "
-                  f"{len(partial_data.dialogue_snippets)} 台词, "
-                  f"{len(partial_data.psychology_clues)} 心理线索, "
-                  f"{len(partial_data.possible_ending)} 可能结局")
-            
-            return partial_data
+        # 重试机制：最多重试 2 次
+        max_retries = 2
+        last_error = None
+        last_json_text = None
         
-        except Exception as e:
-            print(f"[错误] 恋爱块 {chunk_index} 提取失败: {e}")
-            return PartialRomanceData()
+        for attempt in range(max_retries):
+            try:
+                response_text = await self._call_api(system_prompt, user_prompt)
+                
+                # 提取并尝试解析 JSON
+                json_text = self._extract_json_from_response(response_text)
+                last_json_text = json_text
+                
+                # 使用带重试的 JSON 解析
+                data = self._parse_json_with_retry(json_text, max_retries=2)
+                
+                if data is None:
+                    raise json.JSONDecodeError("JSON 解析失败", json_text, 0)
+                
+                # 转换为 PartialRomanceData
+                partial_data = PartialRomanceData(**data)
+                
+                print(f"[Extractor] 恋爱块 {chunk_index} 提取完成: "
+                      f"{len(partial_data.interaction_events)} 事件, "
+                      f"{len(partial_data.dialogue_snippets)} 台词, "
+                      f"{len(partial_data.psychology_clues)} 心理线索, "
+                      f"{len(partial_data.possible_ending)} 可能结局")
+                
+                return partial_data
+            
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    print(f"[警告] 恋爱块 {chunk_index} 提取失败（尝试 {attempt + 1}/{max_retries}），正在重试...")
+                    await asyncio.sleep(1)  # 等待 1 秒后重试
+                else:
+                    # 最后一次尝试也失败，保存错误日志
+                    error_msg = f"[错误] 恋爱块 {chunk_index} 提取失败: {e}"
+                    print(error_msg)
+                    self._save_error_log(chunk_index, "romance", last_json_text, str(e))
+        
+        # 所有重试都失败，返回空对象
+        return PartialRomanceData()
+    
+    def _fix_json_format(self, json_str: str) -> str:
+        """
+        修复常见的 JSON 格式错误
+        
+        Args:
+            json_str: 可能有格式错误的 JSON 字符串
+            
+        Returns:
+            修复后的 JSON 字符串
+        """
+        if not json_str:
+            return json_str
+        
+        import re
+        
+        # 移除 JSON 注释（// 和 /* */）
+        lines = json_str.split('\n')
+        cleaned_lines = []
+        in_multiline_comment = False
+        
+        for line in lines:
+            # 处理多行注释
+            if '/*' in line:
+                in_multiline_comment = True
+                line = line.split('/*')[0]
+            if '*/' in line:
+                in_multiline_comment = False
+                line = line.split('*/', 1)[1]
+                if not line.strip():
+                    continue
+            if in_multiline_comment:
+                continue
+            
+            # 移除单行注释（但要小心字符串中的 //）
+            if '//' in line:
+                # 简单处理：只移除行尾注释
+                line = re.sub(r'(\s*)//.*$', r'\1', line)
+            
+            cleaned_lines.append(line)
+        
+        json_str = '\n'.join(cleaned_lines)
+        
+        # 修复常见的格式问题
+        # 1. 移除末尾多余的逗号（在对象或数组的最后一个元素后）
+        json_str = re.sub(r',(\s*[}\]])', r'\1', json_str)
+        
+        return json_str.strip()
     
     def _extract_json_from_response(self, response: str) -> str:
         """
@@ -418,20 +510,84 @@ class DeepSeekExtractor:
         if "```json" in response:
             start = response.find("```json") + 7
             end = response.find("```", start)
-            return response[start:end].strip()
+            json_text = response[start:end].strip()
         elif "```" in response:
             start = response.find("```") + 3
             end = response.find("```", start)
-            return response[start:end].strip()
+            json_text = response[start:end].strip()
+        else:
+            # 尝试找到 JSON 对象的起始和结束
+            start = response.find("{")
+            end = response.rfind("}") + 1
+            
+            if start >= 0 and end > start:
+                json_text = response[start:end]
+            else:
+                json_text = response.strip()
         
-        # 尝试找到 JSON 对象的起始和结束
-        start = response.find("{")
-        end = response.rfind("}") + 1
+        # 修复 JSON 格式
+        json_text = self._fix_json_format(json_text)
         
-        if start >= 0 and end > start:
-            return response[start:end]
+        return json_text
+    
+    def _parse_json_with_retry(self, json_text: str, max_retries: int = 3) -> Optional[Dict[str, Any]]:
+        """
+        尝试解析 JSON，如果失败则尝试修复后重试
         
-        return response.strip()
+        Args:
+            json_text: JSON 字符串
+            max_retries: 最大重试次数
+            
+        Returns:
+            解析后的字典，如果失败返回 None
+        """
+        for attempt in range(max_retries):
+            try:
+                # 尝试直接解析
+                data = json.loads(json_text)
+                return data
+            except json.JSONDecodeError as e:
+                if attempt == max_retries - 1:
+                    # 最后一次尝试，返回 None
+                    return None
+                
+                # 尝试修复 JSON
+                json_text = self._fix_json_format(json_text)
+        
+        return None
+    
+    def _save_error_log(self, chunk_index: int, chunk_type: str, json_text: str, error_msg: str):
+        """
+        保存失败的 JSON 片段到错误日志文件，便于调试
+        
+        Args:
+            chunk_index: 块索引
+            chunk_type: 块类型（"world" 或 "romance"）
+            json_text: 失败的 JSON 文本
+            error_msg: 错误信息
+        """
+        try:
+            error_log_dir = Path("output") / "error_logs"
+            error_log_dir.mkdir(parents=True, exist_ok=True)
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            error_file = error_log_dir / f"{chunk_type}_chunk_{chunk_index}_{timestamp}.txt"
+            
+            with open(error_file, "w", encoding="utf-8") as f:
+                f.write(f"块类型: {chunk_type}\n")
+                f.write(f"块索引: {chunk_index}\n")
+                f.write(f"错误时间: {timestamp}\n")
+                f.write(f"错误信息: {error_msg}\n")
+                f.write("=" * 80 + "\n")
+                f.write("失败的 JSON 文本:\n")
+                f.write("=" * 80 + "\n")
+                f.write(json_text[:5000])  # 只保存前5000字符
+                if len(json_text) > 5000:
+                    f.write(f"\n\n... (已截断，总长度: {len(json_text)} 字符)")
+            
+            print(f"  💾 错误日志已保存: {error_file}")
+        except Exception as e:
+            print(f"  ⚠️ 保存错误日志失败: {e}")
 
 
 # ============================================================
