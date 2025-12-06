@@ -89,33 +89,63 @@ def load_global_context(config: Dict[str, Any]) -> str:
     
     # 将 JSON 数据序列化为字符串（保留中文字符）
     world_json_str = ""
+    world_char_count = 0
     if world_data is not None:
         try:
             world_json_str = json.dumps(world_data, ensure_ascii=False, indent=2)
+            world_char_count = len(world_json_str)
+            # 增强日志：记录文件路径、字符数和 Token 估算
+            world_token_estimate = int(world_char_count * 0.7)  # 中文 Token 估算：字符数 * 0.7
+            logger.info(
+                f"✅ World Setting 加载成功: "
+                f"文件路径={world_path.absolute()}, "
+                f"字符数={world_char_count}, "
+                f"估算 Token 数≈{world_token_estimate}"
+            )
         except Exception as e:
             logger.warning(f"序列化 World Setting 失败: {e}")
             world_json_str = ""
     
     romance_json_str = ""
+    romance_char_count = 0
     if romance_data is not None:
         try:
             romance_json_str = json.dumps(romance_data, ensure_ascii=False, indent=2)
+            romance_char_count = len(romance_json_str)
+            # 增强日志：记录文件路径、字符数和 Token 估算
+            romance_token_estimate = int(romance_char_count * 0.7)  # 中文 Token 估算：字符数 * 0.7
+            logger.info(
+                f"✅ Romance Guide 加载成功: "
+                f"文件路径={romance_path.absolute()}, "
+                f"字符数={romance_char_count}, "
+                f"估算 Token 数≈{romance_token_estimate}"
+            )
         except Exception as e:
             logger.warning(f"序列化 Romance Guide 失败: {e}")
             romance_json_str = ""
     
     # 使用 Template 安全地插入 JSON 字符串（避免 {} 冲突）
-    template = Template("""[Global Context / World Bible]
+    template = Template("""[全局上下文 / 世界观设定]
 
-The following JSON data contains the immutable laws of the world and relationship guidelines. You must strictly adhere to these settings throughout the generation.
+以下 JSON 数据包含世界运行的规则和恋爱指南。生成故事时，你必须严格遵循这些设定。
 
-<World_Setting>
+【重要提示】
+- 所有输出必须使用简体中文
+- 如果 JSON 中包含英文专有名词、术语或概念，请自动将其翻译为地道的中文奇幻小说术语
+- 翻译要求：
+  * 符合中文奇幻小说的命名习惯
+  * 保持术语翻译的一致性（同一概念在全文中必须使用同一译名）
+  * 优先使用经典中文奇幻术语（如："元素"、"法阵"、"魂体"、"灵力"、"灵脉"等）
+  * 人名、地名等专有名词要保持奇幻风格，符合中文语境
+- 在生成内容时，所有英文术语都必须转换为对应的中文表达
+
+<世界观设定>
 ${world_setting}
-</World_Setting>
+</世界观设定>
 
-<Romance_Guide>
+<恋爱指南>
 ${romance_guide}
-</Romance_Guide>
+</恋爱指南>
 """)
     
     # 如果没有数据，插入空占位符或提示
@@ -130,7 +160,16 @@ ${romance_guide}
         romance_guide=romance_json_str
     )
     
-    logger.info(f"全局上下文加载完成 (World Setting: {len(world_json_str)} 字符, Romance Guide: {len(romance_json_str)} 字符)")
+    # 增强日志：记录总字符数和 Token 估算
+    total_chars = len(context_string)
+    total_token_estimate = int(total_chars * 0.7)  # 中文 Token 估算
+    logger.info(
+        f"✅ 全局上下文加载完成: "
+        f"World Setting={world_char_count} 字符 (≈{int(world_char_count * 0.7)} tokens), "
+        f"Romance Guide={romance_char_count} 字符 (≈{int(romance_char_count * 0.7)} tokens), "
+        f"总计={total_chars} 字符 (≈{total_token_estimate} tokens)"
+    )
+    
     return context_string
 
 
